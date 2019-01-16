@@ -16,20 +16,28 @@ import notification from '@/services/notification';
 
 import './dashboard.less';
 
-function isWidgetPositionChanged(oldPosition, newPosition) {
-  const fields = ['col', 'row', 'sizeX', 'sizeY', 'autoHeight'];
-  oldPosition = _.pick(oldPosition, fields);
-  newPosition = _.pick(newPosition, fields);
-  return !!_.find(fields, key => newPosition[key] !== oldPosition[key]);
-}
+function processWidgetPositions(widgets, nextPositions) {
+  const changed = [];
+  const merged = _.map(widgets, (widget) => {
+    // get corresponding position by id
+    const nextPos = nextPositions[widget.id];
+    const prevPos = widget.options.position;
 
-function getWidgetsWithChangedPositions(widgets) {
-  return _.filter(widgets, (widget) => {
-    if (!_.isObject(widget.$originalPosition)) {
-      return true;
+    // skip deleted widget
+    if (!nextPos) {
+      return null;
     }
-    return isWidgetPositionChanged(widget.$originalPosition, widget.options.position);
+
+    // changed position
+    if (!_.isMatch(prevPos, nextPos)) {
+      changed.push(widget);
+      _.assign(prevPos, nextPos);
+    }
+
+    return widget;
   });
+
+  return [changed, _.compact(merged)];
 }
 
 function DashboardCtrl(
@@ -48,13 +56,13 @@ function DashboardCtrl(
 ) {
   this.saveInProgress = false;
 
-  const saveDashboardLayout = () => {
+  const saveDashboardLayout = (positions) => {
     if (!this.dashboard.canEdit()) {
       return;
     }
 
     // calc diff, bail if none
-    const changedWidgets = getWidgetsWithChangedPositions(this.dashboard.widgets);
+    const [changedWidgets, merged] = processWidgetPositions(this.dashboard.widgets, positions);
     if (!changedWidgets.length) {
       this.isLayoutDirty = false;
       $scope.$applyAsync();
@@ -66,6 +74,7 @@ function DashboardCtrl(
       .all(_.map(changedWidgets, widget => widget.save()))
       .then(() => {
         this.isLayoutDirty = false;
+        this.dashboard.widgets = merged;
       })
       .catch(() => {
         // in the off-chance that a widget got deleted mid-saving it's position, an error will occur
@@ -246,13 +255,10 @@ function DashboardCtrl(
     });
   };
 
-  this.onLayoutChanged = () => {
-    // prevent unnecessary save when gridstack is loaded
-    if (!this.layoutEditing) {
-      return;
-    }
+  this.onLayoutChange = (positions) => {
     this.isLayoutDirty = true;
-    saveDashboardLayoutDebounced();
+    saveDashboardLayoutDebounced(positions);
+    $scope.$applyAsync();
   };
 
   this.editLayout = (enableEditing) => {
@@ -345,6 +351,7 @@ function DashboardCtrl(
     return widget.save()
       .then(() => {
         this.dashboard.widgets.push(widget);
+        this.dashboard.widgets = [...this.dashboard.widgets]; // ANGULAR_REMOVE_ME
         this.onWidgetAdded();
       });
   };
@@ -381,6 +388,7 @@ function DashboardCtrl(
     return Promise.all(widgetsToSave.map(w => w.save()))
       .then(() => {
         this.dashboard.widgets.push(widget);
+        this.dashboard.widgets = [...this.dashboard.widgets]; // ANGULAR_REMOVE_ME
         this.onWidgetAdded();
       });
   };
