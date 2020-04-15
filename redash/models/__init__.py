@@ -883,7 +883,7 @@ class Dashboard(ChangeTrackingMixin, TimestampMixin, BelongsToOrgMixin, db.Model
         query = (
             Dashboard.query
             .options(
-                subqueryload(Dashboard.user).load_only('_profile_image_url', 'name'),
+                joinedload(Dashboard.user).load_only('_profile_image_url', 'name'),
             )
             .outerjoin(Widget)
             .outerjoin(Visualization)
